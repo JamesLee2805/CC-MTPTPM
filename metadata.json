@@ -1,0 +1,7 @@
+{
+  "name": "NovaStream AI Music",
+  "description": "",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
