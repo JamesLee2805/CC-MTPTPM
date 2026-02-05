@@ -1,7 +1,7 @@
 
 import React from 'react';
 import { Track } from '../types';
-import { Clock, Heart } from 'lucide-react';
+import { Clock, Heart, Download } from 'lucide-react';
 
 interface TrackListProps {
   tracks: Track[];
@@ -9,6 +9,7 @@ interface TrackListProps {
   isPlaying: boolean;
   onTrackSelect: (track: Track) => void;
   onToggleLike: (trackId: string) => void;
+  onDownload: (track: Track) => void;
   likedTrackIds: Set<string>;
   showHeader?: boolean;
 }
@@ -19,6 +20,7 @@ const TrackList: React.FC<TrackListProps> = ({
   isPlaying, 
   onTrackSelect,
   onToggleLike,
+  onDownload,
   likedTrackIds,
   showHeader = true
 }) => {
@@ -32,7 +34,7 @@ const TrackList: React.FC<TrackListProps> = ({
               <th className="py-4 px-4">Bài hát</th>
               <th className="py-4 px-4 hidden md:table-cell">Album</th>
               <th className="py-4 px-4 hidden sm:table-cell text-center"><Clock size={14} className="mx-auto" /></th>
-              <th className="py-4 px-4 w-12"></th>
+              <th className="py-4 px-4 w-24"></th>
             </tr>
           </thead>
         )}
@@ -58,7 +60,7 @@ const TrackList: React.FC<TrackListProps> = ({
                 </td>
                 <td className="py-4 px-4">
                   <div className="flex items-center gap-3">
-                    <img src={track.coverUrl} className="w-10 h-10 rounded shadow" alt="cover" />
+                    <img src={track.coverUrl} className="w-10 h-10 rounded shadow object-cover" alt="cover" />
                     <div>
                       <p className={`text-sm font-semibold ${isCurrent ? 'text-blue-400' : 'text-white'}`}>{track.title}</p>
                       <p className="text-xs text-white/40">{track.artist}</p>
@@ -68,15 +70,27 @@ const TrackList: React.FC<TrackListProps> = ({
                 <td className="py-4 px-4 hidden md:table-cell text-sm text-white/40">{track.album}</td>
                 <td className="py-4 px-4 hidden sm:table-cell text-sm text-white/40 text-center tabular-nums">{track.duration}</td>
                 <td className="py-4 px-4 text-center">
-                  <button 
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onToggleLike(track.id);
-                    }}
-                    className={`transition-colors ${isLiked ? 'text-pink-500' : 'text-white/20 hover:text-white'}`}
-                  >
-                    <Heart size={16} fill={isLiked ? "currentColor" : "none"} />
-                  </button>
+                  <div className="flex items-center justify-center gap-3">
+                    <button 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onDownload(track);
+                      }}
+                      className="text-white/20 hover:text-white transition-colors p-1"
+                      title="Tải xuống"
+                    >
+                      <Download size={16} />
+                    </button>
+                    <button 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onToggleLike(track.id);
+                      }}
+                      className={`transition-colors ${isLiked ? 'text-pink-500' : 'text-white/20 hover:text-white'} p-1`}
+                    >
+                      <Heart size={16} fill={isLiked ? "currentColor" : "none"} />
+                    </button>
+                  </div>
                 </td>
               </tr>
             );

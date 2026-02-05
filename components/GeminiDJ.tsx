@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
 import { getMoodPlaylist, explainSong, generateLyrics } from '../services/geminiService';
-import { Sparkles, Brain, Music, Wand2, Loader2, Play } from 'lucide-react';
+import { Sparkles, Brain, Music, Wand2, Loader2, Play, Star } from 'lucide-react';
 import { Track, AIRecommendation } from '../types';
 
 interface GeminiDJProps {
@@ -44,7 +44,10 @@ const GeminiDJ: React.FC<GeminiDJProps> = ({ currentTrack }) => {
         <div className="p-2 bg-blue-500/20 rounded-lg">
           <Sparkles className="text-blue-400" size={24} />
         </div>
-        <h2 className="text-xl font-bold font-poppins">Gemini AI Studio</h2>
+        <div>
+          <h2 className="text-xl font-bold font-poppins">Gemini AI Studio</h2>
+          <p className="text-[10px] text-white/40 uppercase tracking-widest">Ưu tiên Nhạc Việt</p>
+        </div>
       </div>
 
       <div className="flex gap-2 mb-6 p-1 bg-white/5 rounded-xl">
@@ -93,7 +96,10 @@ const GeminiDJ: React.FC<GeminiDJProps> = ({ currentTrack }) => {
                   <div key={i} className="p-3 bg-white/5 border border-white/5 rounded-xl hover:bg-white/10 transition-colors group">
                     <div className="flex justify-between items-start mb-1">
                       <div>
-                        <h4 className="font-semibold text-sm">{rec.title}</h4>
+                        <div className="flex items-center gap-1.5">
+                           <h4 className="font-semibold text-sm">{rec.title}</h4>
+                           <Star size={10} className="text-yellow-500 fill-current" />
+                        </div>
                         <p className="text-xs text-white/50">{rec.artist}</p>
                       </div>
                       <button className="opacity-0 group-hover:opacity-100 text-blue-400 transition-opacity">
@@ -144,7 +150,7 @@ const GeminiDJ: React.FC<GeminiDJProps> = ({ currentTrack }) => {
                 disabled={loading || !mood}
                 className="absolute right-2 top-1.5 p-1.5 bg-blue-500 rounded-lg hover:bg-blue-400 disabled:opacity-50 transition-colors"
               >
-                {loading ? <Loader2 className="animate-spin" size={18} /> : <Wand2 size={18} />}
+                {loading ? <Loader2 className="animate-spin" size={16} /> : <Wand2 size={18} />}
               </button>
             </div>
             {lyrics && (

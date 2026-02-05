@@ -1,7 +1,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
-import { MOCK_TRACKS } from './constants';
-import { Track, ViewState, User } from './types';
+import { MOCK_TRACKS, RECOMMENDED_PLAYLISTS, GENRES } from './constants';
+import { Track, ViewState, User, Playlist } from './types';
 import Player from './components/Player';
 import GeminiDJ from './components/GeminiDJ';
 import Visualizer from './components/Visualizer';
@@ -9,402 +9,407 @@ import AuthModal from './components/AuthModal';
 import SearchView from './components/SearchView';
 import LibraryView from './components/LibraryView';
 import TrackList from './components/TrackList';
+import PlaylistCard from './components/PlaylistCard';
+import PlaylistView from './components/PlaylistView';
+import LyricsView from './components/LyricsView';
 import { storage } from './services/storage';
-import { Home, Search, Library, PlusCircle, Heart, Disc, Play, Pause, MoreHorizontal, User as UserIcon, LogOut, Loader2, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Home, Search, Library, PlusCircle, Heart, Disc, Play, Pause, MoreHorizontal, User as UserIcon, LogOut, Loader2, ChevronLeft, ChevronRight, Upload, Music, CloudUpload, X, ListMusic, Mic2, Star, TrendingUp, Flame, Zap, Headphones } from 'lucide-react';
 
 const App: React.FC = () => {
-  // State initialization with persistence check
   const [isAppLoading, setIsAppLoading] = useState(true);
   const [currentTrack, setCurrentTrack] = useState<Track>(MOCK_TRACKS[0]);
   const [isPlaying, setIsPlaying] = useState(false);
   const [view, setView] = useState<ViewState>(ViewState.HOME);
+  const [previousView, setPreviousView] = useState<ViewState>(ViewState.HOME);
   const [user, setUser] = useState<User | null>(null);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [authView, setAuthView] = useState<'login' | 'register'>('login');
   const [likedTrackIds, setLikedTrackIds] = useState<Set<string>>(new Set());
+  const [userTracks, setUserTracks] = useState<Track[]>([]);
+  const [userPlaylists, setUserPlaylists] = useState<Playlist[]>([]);
+  const [selectedPlaylist, setSelectedPlaylist] = useState<Playlist | null>(null);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [selectedGenre, setSelectedGenre] = useState('Tất cả');
+  const [bannerIndex, setBannerIndex] = useState(0);
   
   const audioRef = useRef<HTMLAudioElement>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
 
-  // Initialize App Data
+  // Helper to change view and track history
+  const navigateTo = (newView: ViewState) => {
+    if (view !== newView) {
+      setPreviousView(view);
+      setView(newView);
+    }
+  };
+
+  const initAudioGraph = () => {
+    if (audioContextRef.current || !audioRef.current) return;
+    const AudioContextClass = (window.AudioContext || (window as any).webkitAudioContext);
+    const ctx = new AudioContextClass();
+    const analyser = ctx.createAnalyser();
+    const source = ctx.createMediaElementSource(audioRef.current);
+    source.connect(analyser);
+    analyser.connect(ctx.destination);
+    analyser.fftSize = 128;
+    audioContextRef.current = ctx;
+    analyserRef.current = analyser;
+  };
+
+  const featuredTracks = [MOCK_TRACKS[0], MOCK_TRACKS[2], MOCK_TRACKS[6], MOCK_TRACKS[9]];
+  
+  useEffect(() => {
+    if (view !== ViewState.HOME) return;
+    const interval = setInterval(() => {
+      setBannerIndex((prev) => (prev + 1) % featuredTracks.length);
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [view, featuredTracks.length]);
+
   useEffect(() => {
     const initApp = async () => {
-      // Simulate connecting to server
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
+      await new Promise(resolve => setTimeout(resolve, 800));
       const storedUser = storage.getUser();
       const storedLiked = storage.getLikedTracks();
-      
+      const storedPlaylists = storage.getUserPlaylists();
       if (storedUser) setUser(storedUser);
       if (storedLiked.length > 0) setLikedTrackIds(new Set(storedLiked));
-      
+      if (storedPlaylists.length > 0) setUserPlaylists(storedPlaylists);
       setIsAppLoading(false);
     };
-
     initApp();
   }, []);
 
-  // Audio Handlers
-  const handlePlayPause = () => {
-    if (!audioRef.current) return;
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    const handleTimeUpdate = () => setCurrentTime(audio.currentTime);
+    audio.addEventListener('timeupdate', handleTimeUpdate);
+    return () => audio.removeEventListener('timeupdate', handleTimeUpdate);
+  }, []);
+
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
     if (isPlaying) {
-      audioRef.current.pause();
+      if (audioContextRef.current?.state === 'suspended') audioContextRef.current.resume();
+      const playPromise = audio.play();
+      if (playPromise !== undefined) {
+        playPromise.catch(error => {
+          console.warn("Playback prevented: ", error.name);
+          if (error.name === 'NotAllowedError') setIsPlaying(false);
+        });
+      }
     } else {
-      audioRef.current.play();
+      audio.pause();
     }
-    setIsPlaying(!isPlaying);
+  }, [isPlaying, currentTrack]);
+
+  const handlePlayPause = () => {
+    initAudioGraph();
+    setIsPlaying(prev => !prev);
   };
 
   const handleTrackSelect = (track: Track) => {
+    initAudioGraph();
+    if (currentTrack.id === track.id) {
+      handlePlayPause();
+      return;
+    }
     setCurrentTrack(track);
     setIsPlaying(true);
-    if (audioRef.current) {
-      audioRef.current.load();
-      audioRef.current.play();
-    }
   };
 
   const nextTrack = () => {
-    const idx = MOCK_TRACKS.findIndex(t => t.id === currentTrack.id);
-    const nextIdx = (idx + 1) % MOCK_TRACKS.length;
-    handleTrackSelect(MOCK_TRACKS[nextIdx]);
+    const all = [...MOCK_TRACKS, ...userTracks];
+    const idx = all.findIndex(t => t.id === currentTrack.id);
+    const nextIdx = (idx + 1) % all.length;
+    handleTrackSelect(all[nextIdx]);
   };
 
   const prevTrack = () => {
-    const idx = MOCK_TRACKS.findIndex(t => t.id === currentTrack.id);
-    const prevIdx = (idx - 1 + MOCK_TRACKS.length) % MOCK_TRACKS.length;
-    handleTrackSelect(MOCK_TRACKS[prevIdx]);
+    const all = [...MOCK_TRACKS, ...userTracks];
+    const idx = all.findIndex(t => t.id === currentTrack.id);
+    const prevIdx = (idx - 1 + all.length) % all.length;
+    handleTrackSelect(all[prevIdx]);
   };
 
-  // Feature Handlers
   const toggleLike = (trackId: string) => {
     setLikedTrackIds(prev => {
       const next = new Set(prev);
-      if (next.has(trackId)) {
-        next.delete(trackId);
-      } else {
-        next.add(trackId);
-      }
-      // Persist to storage
+      next.has(trackId) ? next.delete(trackId) : next.add(trackId);
       storage.saveLikedTracks(Array.from(next));
       return next;
     });
   };
 
-  const handleOpenAuth = (viewType: 'login' | 'register') => {
-    setAuthView(viewType);
-    setShowAuthModal(true);
+  const handleDownload = (track: Track) => {
+    const link = document.createElement('a');
+    link.href = track.audioUrl;
+    link.download = `${track.artist} - ${track.title}.mp3`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
-  const handleLogin = (newUser: User) => {
-    setUser(newUser);
-    storage.saveUser(newUser);
+  const handleCreatePlaylist = () => {
+    if (!user) { setAuthView('login'); setShowAuthModal(true); return; }
+    const newPlaylist: Playlist = {
+      id: `pl-${Date.now()}`,
+      name: `Danh sách mới #${userPlaylists.length + 1}`,
+      description: 'Mô tả playlist của bạn',
+      tracks: [],
+      coverUrl: 'https://images.unsplash.com/photo-1493225255756-d9584f8606e9?w=400&h=400&fit=crop',
+      createdBy: user.id
+    };
+    const updated = [newPlaylist, ...userPlaylists];
+    setUserPlaylists(updated);
+    storage.saveUserPlaylists(updated);
+    handleOpenPlaylist(newPlaylist);
   };
 
-  const handleLogout = () => {
-    setUser(null);
-    storage.clearUser();
-    setView(ViewState.HOME);
+  const handleOpenPlaylist = (playlist: Playlist) => {
+    setSelectedPlaylist(playlist);
+    navigateTo(ViewState.PLAYLIST_DETAIL);
   };
 
-  const getLikedTracks = () => MOCK_TRACKS.filter(t => likedTrackIds.has(t.id));
+  const handleSeek = (time: number) => {
+    if (audioRef.current) {
+      audioRef.current.currentTime = time;
+      setCurrentTime(time);
+    }
+  };
 
-  // Render Loading Screen
-  if (isAppLoading) {
-    return (
-      <div className="h-screen w-screen flex flex-col items-center justify-center bg-[#0a0a0c] text-white">
-        <div className="w-16 h-16 bg-blue-600 rounded-2xl flex items-center justify-center shadow-lg shadow-blue-500/20 mb-6 animate-bounce">
-          <Disc className="text-white animate-spin-slow" size={40} />
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const newTrack: Track = {
+        id: `local-${Date.now()}`,
+        title: file.name.replace(/\.[^/.]+$/, ""),
+        artist: user?.name || 'Local User',
+        album: 'Bản tải lên',
+        duration: '??:??',
+        coverUrl: 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=400&h=400&fit=crop',
+        audioUrl: URL.createObjectURL(file),
+        genre: 'Tải lên',
+        isLocal: true
+      };
+      setUserTracks([newTrack, ...userTracks]);
+      navigateTo(ViewState.LIBRARY);
+    }
+  };
+
+  const handleToggleNowPlaying = () => {
+    if (view === ViewState.LYRICS) {
+      setView(previousView);
+    } else {
+      setPreviousView(view);
+      setView(ViewState.LYRICS);
+    }
+  };
+
+  const getFilteredTracks = () => {
+    if (selectedGenre === 'Tất cả') return MOCK_TRACKS;
+    return MOCK_TRACKS.filter(t => t.genre === selectedGenre);
+  };
+
+  const renderHomeContent = () => (
+    <div className="space-y-12 pb-10">
+      <section className="relative h-[300px] md:h-[450px] w-full rounded-3xl overflow-hidden group shadow-2xl">
+        {featuredTracks.map((track, idx) => (
+          <div key={track.id} className={`absolute inset-0 transition-all duration-1000 ease-in-out ${idx === bannerIndex ? 'opacity-100 scale-100' : 'opacity-0 scale-105 pointer-events-none'}`}>
+            <div className="absolute inset-0">
+              <img src={track.coverUrl} className="w-full h-full object-cover" alt={track.title} />
+              <div className="absolute inset-0 bg-gradient-to-r from-black/90 via-black/40 to-transparent"></div>
+              <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent"></div>
+            </div>
+            <div className="relative h-full flex flex-col justify-center px-8 md:px-16 space-y-4 md:space-y-6">
+              <div className="flex items-center gap-3">
+                <div className="flex items-center gap-1.5 px-2.5 py-1 bg-white/10 backdrop-blur-md rounded-full border border-white/20">
+                   <Star size={12} className="text-yellow-400 fill-current" />
+                   <span className="text-[10px] font-black text-white uppercase tracking-widest">Editor's Pick</span>
+                </div>
+                <span className="text-white/60 text-xs font-bold uppercase tracking-widest">{track.genre}</span>
+              </div>
+              <div className="space-y-2 max-w-2xl">
+                <h1 className="text-4xl md:text-8xl font-black font-poppins leading-tight tracking-tighter text-white drop-shadow-2xl">{track.title}</h1>
+                <p className="text-xl md:text-3xl font-medium text-white/80">{track.artist}</p>
+                <p className="text-sm text-white/40 max-w-md hidden md:block line-clamp-2">{track.description}</p>
+              </div>
+              <div className="flex items-center gap-4">
+                <button onClick={() => handleTrackSelect(track)} className="bg-blue-600 text-white px-8 py-4 rounded-full font-black text-sm md:text-base flex items-center gap-2 hover:scale-105 hover:bg-blue-500 transition-all shadow-xl shadow-blue-600/20">
+                  {(currentTrack.id === track.id && isPlaying) ? <Pause size={22} fill="white" /> : <Play size={22} fill="white" className="ml-1" />}
+                  PHÁT NGAY
+                </button>
+                <button onClick={() => { handleTrackSelect(track); handleToggleNowPlaying(); }} className="bg-white/10 backdrop-blur-md text-white border border-white/20 px-8 py-4 rounded-full font-black text-sm md:text-base flex items-center gap-2 hover:bg-white/20 transition-all">
+                  <Mic2 size={20} /> XEM LỜI
+                </button>
+              </div>
+            </div>
+          </div>
+        ))}
+        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex gap-3 z-10">
+          {featuredTracks.map((_, idx) => (
+            <button key={idx} onClick={() => setBannerIndex(idx)} className={`h-1.5 rounded-full transition-all duration-500 ${idx === bannerIndex ? 'w-10 bg-blue-500 shadow-[0_0_15px_rgba(59,130,246,0.8)]' : 'w-2 bg-white/20 hover:bg-white/40'}`} />
+          ))}
         </div>
-        <h1 className="text-2xl font-bold font-poppins tracking-tight mb-2">NovaStream</h1>
-        <div className="flex items-center gap-2 text-white/40 text-sm">
-          <Loader2 className="animate-spin" size={16} />
-          <span>Đang kết nối đến máy chủ...</span>
-        </div>
+      </section>
+
+      <div className="flex items-center gap-3 overflow-x-auto pb-4 no-scrollbar -mx-2 px-2">
+        {GENRES.map(genre => (
+          <button key={genre} onClick={() => setSelectedGenre(genre)} className={`px-6 py-2.5 rounded-full text-sm font-bold whitespace-nowrap transition-all border ${selectedGenre === genre ? 'bg-blue-600 border-blue-600 text-white shadow-lg shadow-blue-600/30 scale-105' : 'bg-white/5 border-white/10 text-white/60 hover:text-white hover:bg-white/10'}`}>
+            {genre === 'DJ / Vinahouse' ? <span className="flex items-center gap-2"><Zap size={14} className="text-yellow-400" /> {genre}</span> : genre}
+          </button>
+        ))}
       </div>
-    );
-  }
 
-  // View Renderer
-  const renderMainContent = () => {
-    switch (view) {
-      case ViewState.SEARCH:
-        return (
-          <SearchView 
-            allTracks={MOCK_TRACKS}
-            currentTrack={currentTrack}
-            isPlaying={isPlaying}
-            onTrackSelect={handleTrackSelect}
-            onToggleLike={toggleLike}
-            likedTrackIds={likedTrackIds}
-          />
-        );
-      
-      case ViewState.LIBRARY:
-        return (
-          <LibraryView 
-            user={user}
-            onOpenAuth={() => handleOpenAuth('login')}
-            likedTracks={getLikedTracks()}
-            currentTrack={currentTrack}
-            isPlaying={isPlaying}
-            onTrackSelect={handleTrackSelect}
-            onToggleLike={toggleLike}
-            likedTrackIds={likedTrackIds}
-          />
-        );
-
-      case ViewState.HOME:
-      default:
-        return (
-          <>
-            {/* Hero Section */}
-            <div className="relative group mb-10">
-              <div className="flex flex-col md:flex-row items-end gap-8 p-8 glass rounded-3xl overflow-hidden relative">
-                <img 
-                  src={currentTrack.coverUrl} 
-                  className="w-48 h-48 md:w-64 md:h-64 rounded-2xl shadow-2xl object-cover hover:scale-[1.02] transition-transform duration-500" 
-                  alt="Current Album" 
-                />
-                <div className="flex-1 space-y-4">
-                  <span className="text-xs font-bold uppercase tracking-widest text-blue-400">Đang phát</span>
-                  <h1 className="text-4xl md:text-6xl font-black font-poppins">{currentTrack.title}</h1>
-                  <div className="flex items-center gap-2 text-white/60">
-                    <span className="font-semibold text-white">{currentTrack.artist}</span>
-                    <span>•</span>
-                    <span className="text-sm">{currentTrack.album}</span>
-                    <span>•</span>
-                    <span className="text-sm">{currentTrack.genre}</span>
+      {(selectedGenre === 'Tất cả' || selectedGenre === 'DJ / Vinahouse') && (
+        <section className="animate-fade-in">
+          <div className="flex items-center justify-between mb-8">
+            <div>
+              <h2 className="text-3xl font-black font-poppins flex items-center gap-3"><Headphones className="text-yellow-500" size={32} /> DJ Spotlight</h2>
+              <p className="text-sm text-white/40 italic mt-1">Nơi hội tụ những bản phối căng nhất từ Thái Hoàng, Future, Win...</p>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+            {MOCK_TRACKS.filter(t => t.genre === 'DJ / Vinahouse').map(track => (
+              <div key={track.id} onClick={() => handleTrackSelect(track)} className="group relative bg-[#18181b] rounded-2xl overflow-hidden cursor-pointer border border-white/5 transition-all hover:scale-[1.02] hover:border-yellow-500/50 shadow-xl">
+                <div className="aspect-[4/5] relative">
+                  <img src={track.coverUrl} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" alt={track.title} />
+                  <div className="absolute inset-0 bg-gradient-to-t from-black via-black/20 to-transparent opacity-80"></div>
+                  <div className="absolute bottom-5 left-5 right-5">
+                    <div className="flex items-center gap-2 mb-2">
+                       <span className="px-2 py-0.5 bg-yellow-500 text-[9px] font-black text-black rounded uppercase tracking-tighter">Vinahouse 2024</span>
+                    </div>
+                    <h3 className="text-lg font-bold text-white truncate">{track.title}</h3>
+                    <p className="text-sm text-white/60">{track.artist}</p>
                   </div>
-                  <div className="flex items-center gap-4 pt-4">
-                    <button 
-                      onClick={handlePlayPause}
-                      className="bg-blue-600 hover:bg-blue-500 text-white px-8 py-3 rounded-full font-bold shadow-xl shadow-blue-600/20 flex items-center gap-2 hover:scale-105 transition-all"
-                    >
-                      {isPlaying ? <Pause size={20} /> : <Play size={20} />} {isPlaying ? 'TẠM DỪNG' : 'PHÁT'}
-                    </button>
-                    <button 
-                      onClick={() => toggleLike(currentTrack.id)}
-                      className={`w-12 h-12 border border-white/20 rounded-full flex items-center justify-center hover:bg-white/10 transition-colors ${likedTrackIds.has(currentTrack.id) ? 'text-pink-500' : 'text-white'}`}
-                    >
-                      <Heart size={20} fill={likedTrackIds.has(currentTrack.id) ? "currentColor" : "none"} />
-                    </button>
-                    <button className="w-12 h-12 border border-white/20 rounded-full flex items-center justify-center hover:bg-white/10 transition-colors">
-                      <MoreHorizontal size={20} />
-                    </button>
+                  <div className="absolute top-5 right-5 w-12 h-12 bg-yellow-500 rounded-full flex items-center justify-center shadow-2xl opacity-0 translate-y-3 group-hover:opacity-100 group-hover:translate-y-0 transition-all duration-300">
+                    <Play size={24} fill="black" className="ml-1 text-black" />
                   </div>
                 </div>
-                
-                {/* Embedded Visualizer */}
-                <div className="absolute top-4 right-8 w-48 opacity-40">
-                  <Visualizer isPlaying={isPlaying} audioRef={audioRef} />
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      <section className="animate-fade-in">
+        <div className="flex justify-between items-end mb-6">
+          <div>
+            <h2 className="text-2xl font-black font-poppins flex items-center gap-2"><TrendingUp className="text-blue-500" size={24} /> {selectedGenre === 'Tất cả' ? 'BXH Xu hướng' : `Đề xuất ${selectedGenre}`}</h2>
+            <p className="text-sm text-white/40">Giai điệu đang được yêu thích nhất</p>
+          </div>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {getFilteredTracks().slice(0, 6).map((track, idx) => (
+            <div key={track.id} onClick={() => handleTrackSelect(track)} className="group flex items-center gap-4 p-4 rounded-2xl bg-white/5 border border-white/5 hover:bg-white/10 hover:border-blue-500/30 transition-all cursor-pointer relative">
+              <div className="relative w-24 h-24 flex-shrink-0">
+                <img src={track.coverUrl} className="w-full h-full object-cover rounded-xl shadow-lg" alt={track.title} />
+                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center rounded-xl"><Play size={24} fill="white" /></div>
+                <div className="absolute -top-2 -left-2 w-8 h-8 bg-blue-600 text-white text-[10px] font-black rounded-full flex items-center justify-center border-2 border-[#0a0a0c] shadow-lg">#{idx + 1}</div>
+              </div>
+              <div className="min-w-0 flex-1">
+                <h3 className="font-bold text-white truncate group-hover:text-blue-400 transition-colors">{track.title}</h3>
+                <p className="text-xs text-white/40 truncate">{track.artist}</p>
+                <div className="flex items-center gap-2 mt-2">
+                   <span className={`text-[10px] font-bold uppercase tracking-widest ${track.genre.includes('DJ') ? 'text-yellow-500' : 'text-blue-500'}`}>{track.genre}</span>
+                   {idx < 3 && <Flame size={14} className="text-orange-500" />}
                 </div>
               </div>
             </div>
+          ))}
+        </div>
+      </section>
+    </div>
+  );
 
-            {/* Trending Tracks */}
-            <section className="space-y-6">
-              <div className="flex justify-between items-end px-2">
-                <h2 className="text-2xl font-bold font-poppins tracking-tight">Mới khám phá</h2>
-                <button className="text-sm font-semibold text-white/40 hover:text-white transition-colors">Xem tất cả</button>
-              </div>
-              <TrackList 
-                tracks={MOCK_TRACKS}
-                currentTrack={currentTrack}
-                isPlaying={isPlaying}
-                onTrackSelect={handleTrackSelect}
-                onToggleLike={toggleLike}
-                likedTrackIds={likedTrackIds}
-              />
-            </section>
-          </>
+  const renderMainContent = () => {
+    switch (view) {
+      case ViewState.SEARCH:
+        return <SearchView allTracks={[...MOCK_TRACKS, ...userTracks]} currentTrack={currentTrack} isPlaying={isPlaying} onTrackSelect={handleTrackSelect} onToggleLike={toggleLike} onDownload={handleDownload} likedTrackIds={likedTrackIds} />;
+      case ViewState.LIBRARY:
+        return <LibraryView user={user} onOpenAuth={() => { setAuthView('login'); setShowAuthModal(true); }} likedTracks={[...MOCK_TRACKS, ...userTracks].filter(t => likedTrackIds.has(t.id))} currentTrack={currentTrack} isPlaying={isPlaying} onTrackSelect={handleTrackSelect} onToggleLike={toggleLike} onDownload={handleDownload} likedTrackIds={likedTrackIds} />;
+      case ViewState.PLAYLIST_DETAIL:
+        return selectedPlaylist ? <PlaylistView playlist={selectedPlaylist} currentTrack={currentTrack} isPlaying={isPlaying} onTrackSelect={handleTrackSelect} onToggleLike={toggleLike} onDownload={handleDownload} likedTrackIds={likedTrackIds} onBack={() => navigateTo(previousView)} /> : null;
+      case ViewState.UPLOAD:
+        return (
+          <div className="animate-fade-in space-y-8">
+            <div className="p-12 border-2 border-dashed border-white/10 rounded-3xl flex flex-col items-center justify-center text-center space-y-6 bg-white/5">
+              <div className="w-20 h-20 bg-blue-600/20 rounded-full flex items-center justify-center text-blue-500"><CloudUpload size={40} /></div>
+              <div><h2 className="text-2xl font-bold">Tải lên âm nhạc của bạn</h2><p className="text-white/40 max-w-sm mt-2">Chia sẻ những giai điệu yêu thích từ máy tính của bạn.</p></div>
+              <label className="bg-blue-600 hover:bg-blue-500 px-8 py-3 rounded-full font-bold cursor-pointer transition-transform hover:scale-105">Chọn tệp MP3<input type="file" accept="audio/mp3" className="hidden" onChange={handleFileUpload} /></label>
+            </div>
+          </div>
         );
+      case ViewState.HOME:
+      default:
+        return renderHomeContent();
     }
   };
 
   return (
     <div className="h-screen w-screen flex flex-col bg-[#0a0a0c] text-white overflow-hidden selection:bg-blue-500/30">
-      <AuthModal 
-        isOpen={showAuthModal} 
-        onClose={() => setShowAuthModal(false)}
-        onLogin={handleLogin}
-        initialView={authView}
-      />
-
-      <div className="flex-1 flex overflow-hidden">
-        {/* Navigation Sidebar */}
-        <aside className="w-64 glass border-r border-white/5 p-6 flex flex-col gap-8 hidden md:flex">
+      <AuthModal isOpen={showAuthModal} onClose={() => setShowAuthModal(false)} onLogin={(u) => {setUser(u); storage.saveUser(u)}} initialView={authView} />
+      {view === ViewState.LYRICS && <LyricsView track={currentTrack} currentTime={currentTime} onSeek={handleSeek} onClose={handleToggleNowPlaying} audioRef={audioRef} isPlaying={isPlaying} analyser={analyserRef.current} />}
+      <div className={`flex-1 flex overflow-hidden ${view === ViewState.LYRICS ? 'hidden' : ''}`}>
+        <aside className="w-64 glass border-r border-white/5 p-6 flex flex-col gap-8 hidden md:flex overflow-hidden">
           <div className="flex items-center gap-3 px-2">
-            <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center shadow-lg shadow-blue-500/20">
-              <Disc className="text-white animate-spin-slow" size={20} />
-            </div>
-            <h1 className="text-xl font-bold tracking-tight font-poppins">NovaStream</h1>
+            <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center shadow-lg"><Disc className="animate-spin-slow text-white" size={20} /></div>
+            <h1 className="text-xl font-bold font-poppins">SoundTrack</h1>
           </div>
-
           <nav className="space-y-1">
-            <NavItem 
-              icon={<Home size={20} />} 
-              label="Trang chủ" 
-              active={view === ViewState.HOME} 
-              onClick={() => setView(ViewState.HOME)} 
-            />
-            <NavItem 
-              icon={<Search size={20} />} 
-              label="Tìm kiếm" 
-              active={view === ViewState.SEARCH} 
-              onClick={() => setView(ViewState.SEARCH)} 
-            />
-            <NavItem 
-              icon={<Library size={20} />} 
-              label="Thư viện" 
-              active={view === ViewState.LIBRARY} 
-              onClick={() => setView(ViewState.LIBRARY)} 
-            />
+            <NavItem icon={<Home size={20} />} label="Trang chủ" active={view === ViewState.HOME} onClick={() => navigateTo(ViewState.HOME)} />
+            <NavItem icon={<Search size={20} />} label="Tìm kiếm" active={view === ViewState.SEARCH} onClick={() => navigateTo(ViewState.SEARCH)} />
+            <NavItem icon={<Library size={20} />} label="Thư viện" active={view === ViewState.LIBRARY} onClick={() => navigateTo(ViewState.LIBRARY)} />
+            <NavItem icon={<Upload size={20} />} label="Tải lên" active={view === ViewState.UPLOAD} onClick={() => navigateTo(ViewState.UPLOAD)} />
           </nav>
-
-          <div className="space-y-4">
-            <h3 className="text-[10px] font-bold text-white/30 uppercase tracking-widest px-2">Playlist của bạn</h3>
+          <div className="space-y-4 flex-1 overflow-y-auto pr-2 custom-scrollbar">
+            <h3 className="text-[10px] font-bold text-white/30 uppercase tracking-widest px-2">Playlist</h3>
             <div className="space-y-1">
-              <NavItem icon={<PlusCircle size={20} />} label="Tạo Playlist" active={false} onClick={() => !user && handleOpenAuth('login')} />
-              <NavItem 
-                icon={<Heart size={20} className="text-pink-500" />} 
-                label="Bài hát đã thích" 
-                active={view === ViewState.LIBRARY} 
-                onClick={() => setView(ViewState.LIBRARY)} 
-              />
-            </div>
-          </div>
-          
-          <div className="mt-auto">
-            {!user ? (
-               <div className="p-4 bg-gradient-to-br from-blue-600/20 to-purple-600/20 rounded-2xl border border-white/10">
-                <p className="text-xs font-semibold mb-1">Nova Pro</p>
-                <p className="text-[10px] text-white/50 mb-3">AI Tuyển chọn & Âm thanh Lossless</p>
-                <button 
-                  onClick={() => handleOpenAuth('login')}
-                  className="w-full py-2 bg-white text-black text-[10px] font-bold rounded-lg hover:scale-[1.02] transition-transform"
-                >
-                  ĐĂNG NHẬP
+              <NavItem icon={<PlusCircle size={20} />} label="Tạo mới" active={false} onClick={handleCreatePlaylist} />
+              <NavItem icon={<Heart size={20} className="text-pink-500" />} label="Yêu thích" active={false} onClick={() => navigateTo(ViewState.LIBRARY)} />
+              {userPlaylists.map(pl => (
+                <button key={pl.id} onClick={() => handleOpenPlaylist(pl)} className={`w-full flex items-center gap-3 px-4 py-2 rounded-xl text-sm transition-all text-left truncate ${selectedPlaylist?.id === pl.id && view === ViewState.PLAYLIST_DETAIL ? 'bg-white/10 text-white' : 'text-white/40 hover:text-white hover:bg-white/5'}`}>
+                  <ListMusic size={18} /> <span className="truncate">{pl.name}</span>
                 </button>
-              </div>
-            ) : (
-              <div className="p-4 bg-white/5 rounded-2xl border border-white/5 flex items-center gap-3">
-                {user.avatar ? (
-                  <img src={user.avatar} alt={user.name} className="w-8 h-8 rounded-full" />
-                ) : (
-                  <div className="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center text-xs font-bold">
-                    {user.name.charAt(0).toUpperCase()}
-                  </div>
-                )}
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold truncate">{user.name}</p>
-                  <button onClick={handleLogout} className="text-[10px] text-white/50 hover:text-white flex items-center gap-1">
-                    <LogOut size={10} /> Đăng xuất
-                  </button>
-                </div>
-              </div>
-            )}
+              ))}
+            </div>
           </div>
         </aside>
-
-        {/* Main Content Area */}
         <main className="flex-1 overflow-y-auto bg-gradient-to-b from-white/5 to-transparent relative">
-          {/* Header Bar */}
-          <header className="sticky top-0 z-20 flex items-center justify-between px-6 py-4 bg-[#0a0a0c]/90 backdrop-blur-md transition-all">
-            {/* Nav buttons */}
-            <div className="hidden md:flex gap-2">
-              <button className="w-8 h-8 rounded-full bg-black/50 flex items-center justify-center text-white/60 cursor-not-allowed hover:text-white transition-colors"><ChevronLeft size={20} /></button>
-              <button className="w-8 h-8 rounded-full bg-black/50 flex items-center justify-center text-white/60 cursor-not-allowed hover:text-white transition-colors"><ChevronRight size={20} /></button>
+          <header className="sticky top-0 z-20 flex items-center justify-between px-6 py-4 bg-[#0a0a0c]/90 backdrop-blur-md">
+            <div className="flex gap-2">
+              <button onClick={() => setView(previousView)} className="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center text-white/60 hover:text-white hover:bg-white/10 transition-colors shadow-sm"><ChevronLeft size={20} /></button>
+              <button className="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center text-white/20 cursor-not-allowed"><ChevronRight size={20} /></button>
             </div>
-            
-            <div className="md:hidden">
-              <h1 className="text-lg font-bold font-poppins text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-purple-500">NovaStream</h1>
-            </div>
-
-            {/* Auth Buttons / User Profile */}
             <div className="flex items-center gap-4">
               {!user ? (
-                <>
-                  <button 
-                    onClick={() => handleOpenAuth('register')}
-                    className="text-white/60 hover:text-white font-semibold text-sm transition-colors hidden sm:block uppercase tracking-wider text-[11px]"
-                  >
-                    Đăng ký
-                  </button>
-                  <button 
-                    onClick={() => handleOpenAuth('login')}
-                    className="bg-white text-black px-8 py-3 rounded-full font-bold text-sm hover:scale-105 transition-transform"
-                  >
-                    Đăng nhập
-                  </button>
-                </>
+                <><button onClick={() => { setAuthView('register'); setShowAuthModal(true); }} className="text-white/60 hover:text-white font-semibold text-xs tracking-widest uppercase">Đăng ký</button>
+                <button onClick={() => { setAuthView('login'); setShowAuthModal(true); }} className="bg-white text-black px-8 py-2.5 rounded-full font-bold text-sm">Đăng nhập</button></>
               ) : (
-                <div className="flex items-center gap-2 bg-black/50 p-1 pr-4 rounded-full border border-white/5 cursor-pointer hover:bg-black/70 transition-colors group">
-                  <div className="w-8 h-8 rounded-full overflow-hidden bg-blue-500 border-2 border-transparent group-hover:border-blue-400 transition-colors">
-                    {user.avatar ? (
-                      <img src={user.avatar} alt={user.name} className="w-full h-full object-cover" />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center text-xs font-bold">
-                        {user.name.charAt(0).toUpperCase()}
-                      </div>
-                    )}
-                  </div>
-                  <span className="text-sm font-semibold max-w-[100px] truncate">{user.name}</span>
+                <div className="flex items-center gap-3 bg-white/5 px-3 py-1.5 rounded-full border border-white/5 group cursor-pointer">
+                   <div className="w-7 h-7 rounded-full overflow-hidden bg-blue-500"><img src={user.avatar} alt={user.name} className="w-full h-full object-cover" /></div>
+                  <span className="text-sm font-semibold max-w-[120px] truncate">{user.name}</span>
                 </div>
               )}
             </div>
           </header>
-
-          <div className="p-6 md:p-10 max-w-6xl mx-auto space-y-10 pb-32 min-h-full">
-            {renderMainContent()}
-          </div>
+          <div className="p-6 md:p-10 max-w-6xl mx-auto min-h-full transition-all duration-500">{renderMainContent()}</div>
         </main>
-
-        {/* Gemini AI Side Panel */}
-        <aside className="w-96 glass border-l border-white/5 p-6 hidden lg:block">
-          <GeminiDJ currentTrack={currentTrack} />
-        </aside>
+        <aside className="w-96 glass border-l border-white/5 p-6 hidden lg:block overflow-hidden"><GeminiDJ currentTrack={currentTrack} /></aside>
       </div>
-
-      {/* Hidden Audio Element */}
-      <audio 
-        ref={audioRef} 
-        src={currentTrack.audioUrl} 
-        onEnded={nextTrack}
-        crossOrigin="anonymous"
-      />
-
-      {/* Global Player Controls */}
-      <Player 
-        currentTrack={currentTrack} 
-        isPlaying={isPlaying} 
-        onPlayPause={handlePlayPause}
-        onNext={nextTrack}
-        onPrev={prevTrack}
-        audioRef={audioRef}
-        onToggleLike={toggleLike}
-        isLiked={likedTrackIds.has(currentTrack.id)}
-      />
+      <audio ref={audioRef} src={currentTrack.audioUrl} onEnded={nextTrack} preload="auto" />
+      <Player currentTrack={currentTrack} isPlaying={isPlaying} onPlayPause={handlePlayPause} onNext={nextTrack} onPrev={prevTrack} onOpenLyrics={handleToggleNowPlaying} audioRef={audioRef} onToggleLike={toggleLike} isLiked={likedTrackIds.has(currentTrack.id)} />
     </div>
   );
 };
 
-interface NavItemProps {
-  icon: React.ReactNode;
-  label: string;
-  active: boolean;
-  onClick?: () => void;
-}
-
+interface NavItemProps { icon: React.ReactNode; label: string; active: boolean; onClick?: () => void; }
 const NavItem: React.FC<NavItemProps> = ({ icon, label, active, onClick }) => (
-  <button 
-    onClick={onClick}
-    className={`w-full flex items-center gap-4 px-4 py-3 rounded-xl text-sm font-medium transition-all ${
-      active ? 'bg-white/10 text-white shadow-sm' : 'text-white/40 hover:text-white hover:bg-white/5'
-    }`}
-  >
-    {icon}
-    <span>{label}</span>
-    {active && <div className="ml-auto w-1.5 h-1.5 bg-blue-500 rounded-full"></div>}
+  <button onClick={onClick} className={`w-full flex items-center gap-4 px-4 py-3 rounded-xl text-sm font-medium transition-all ${active ? 'bg-white/10 text-white shadow-sm' : 'text-white/40 hover:text-white hover:bg-white/5'}`}>
+    {icon}<span>{label}</span>{active && <div className="ml-auto w-1.5 h-1.5 bg-blue-500 rounded-full"></div>}
   </button>
 );
 

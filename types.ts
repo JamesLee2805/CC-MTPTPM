@@ -1,4 +1,9 @@
 
+export interface LyricLine {
+  time: number;
+  text: string;
+}
+
 export interface Track {
   id: string;
   title: string;
@@ -9,6 +14,8 @@ export interface Track {
   audioUrl: string;
   genre: string;
   description?: string;
+  isLocal?: boolean;
+  lyrics?: LyricLine[];
 }
 
 export interface Playlist {
@@ -17,6 +24,7 @@ export interface Playlist {
   description: string;
   tracks: Track[];
   coverUrl: string;
+  createdBy?: string;
 }
 
 export enum ViewState {
@@ -25,7 +33,9 @@ export enum ViewState {
   SEARCH = 'search',
   LIBRARY = 'library',
   AI_EXPLORER = 'ai_explorer',
-  LYRICS = 'lyrics'
+  LYRICS = 'lyrics',
+  UPLOAD = 'upload',
+  PLAYLIST_DETAIL = 'playlist_detail'
 }
 
 export interface AIRecommendation {

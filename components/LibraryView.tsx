@@ -12,6 +12,7 @@ interface LibraryViewProps {
   isPlaying: boolean;
   onTrackSelect: (track: Track) => void;
   onToggleLike: (trackId: string) => void;
+  onDownload: (track: Track) => void;
   likedTrackIds: Set<string>;
 }
 
@@ -23,6 +24,7 @@ const LibraryView: React.FC<LibraryViewProps> = ({
   isPlaying,
   onTrackSelect,
   onToggleLike,
+  onDownload,
   likedTrackIds
 }) => {
   if (!user) {
@@ -81,6 +83,7 @@ const LibraryView: React.FC<LibraryViewProps> = ({
             isPlaying={isPlaying}
             onTrackSelect={onTrackSelect}
             onToggleLike={onToggleLike}
+            onDownload={onDownload}
             likedTrackIds={likedTrackIds}
           />
         ) : (

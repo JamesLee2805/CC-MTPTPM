@@ -1,9 +1,10 @@
 
-import { User } from '../types';
+import { User, Playlist } from '../types';
 
 const KEYS = {
-  USER: 'nova_user_session',
-  LIKED_TRACKS: 'nova_liked_tracks',
+  USER: 'soundtrack_user_session',
+  LIKED_TRACKS: 'soundtrack_liked_tracks',
+  USER_PLAYLISTS: 'soundtrack_user_playlists',
 };
 
 export const storage = {
@@ -35,5 +36,18 @@ export const storage = {
 
   saveLikedTracks: (ids: string[]) => {
     localStorage.setItem(KEYS.LIKED_TRACKS, JSON.stringify(ids));
+  },
+
+  getUserPlaylists: (): Playlist[] => {
+    try {
+      const data = localStorage.getItem(KEYS.USER_PLAYLISTS);
+      return data ? JSON.parse(data) : [];
+    } catch {
+      return [];
+    }
+  },
+
+  saveUserPlaylists: (playlists: Playlist[]) => {
+    localStorage.setItem(KEYS.USER_PLAYLISTS, JSON.stringify(playlists));
   }
 };

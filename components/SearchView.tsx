@@ -10,6 +10,7 @@ interface SearchViewProps {
   isPlaying: boolean;
   onTrackSelect: (track: Track) => void;
   onToggleLike: (trackId: string) => void;
+  onDownload: (track: Track) => void;
   likedTrackIds: Set<string>;
 }
 
@@ -57,6 +58,7 @@ const SearchView: React.FC<SearchViewProps> = (props) => {
           isPlaying={props.isPlaying}
           onTrackSelect={props.onTrackSelect}
           onToggleLike={props.onToggleLike}
+          onDownload={props.onDownload}
           likedTrackIds={props.likedTrackIds}
         />
       </div>

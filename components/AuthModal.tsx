@@ -59,7 +59,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLogin, initial
 
         <div className="text-center mb-8">
           <h2 className="text-2xl font-bold font-poppins mb-2">
-            {isRegister ? 'Tạo tài khoản Nova' : 'Chào mừng trở lại'}
+            {isRegister ? 'Tạo tài khoản SoundTrack' : 'Chào mừng trở lại'}
           </h2>
           <p className="text-sm text-white/40">
             {isRegister ? 'Bắt đầu hành trình âm nhạc của bạn' : 'Đăng nhập để đồng bộ thư viện của bạn'}
