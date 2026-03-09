@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { User, Track } from '../types';
+import { User, Track, Playlist } from '../types';
 import { Heart, Music, Lock } from 'lucide-react';
 import TrackList from './TrackList';
 
@@ -14,6 +14,10 @@ interface LibraryViewProps {
   onToggleLike: (trackId: string) => void;
   onDownload: (track: Track) => void;
   likedTrackIds: Set<string>;
+  userPlaylists?: Playlist[];
+  onAddToPlaylist?: (track: Track, playlistId: string) => void;
+  onAddToQueue?: (track: Track) => void;
+  onCreatePlaylist?: () => void;
 }
 
 const LibraryView: React.FC<LibraryViewProps> = ({
@@ -25,7 +29,11 @@ const LibraryView: React.FC<LibraryViewProps> = ({
   onTrackSelect,
   onToggleLike,
   onDownload,
-  likedTrackIds
+  likedTrackIds,
+  userPlaylists,
+  onAddToPlaylist,
+  onAddToQueue,
+  onCreatePlaylist
 }) => {
   if (!user) {
     return (
@@ -85,6 +93,10 @@ const LibraryView: React.FC<LibraryViewProps> = ({
             onToggleLike={onToggleLike}
             onDownload={onDownload}
             likedTrackIds={likedTrackIds}
+            userPlaylists={userPlaylists}
+            onAddToPlaylist={onAddToPlaylist}
+            onAddToQueue={onAddToQueue}
+            onCreatePlaylist={onCreatePlaylist}
           />
         ) : (
           <div className="glass p-12 text-center rounded-2xl border border-white/5 border-dashed">

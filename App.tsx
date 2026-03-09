@@ -1,7 +1,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
-import { MOCK_TRACKS, RECOMMENDED_PLAYLISTS, GENRES } from './constants';
-import { Track, ViewState, User, Playlist } from './types';
+import { MOCK_TRACKS, RECOMMENDED_PLAYLISTS, GENRES, TOPICS } from './constants';
+import { Track, ViewState, User, Playlist, RepeatMode } from './types';
 import Player from './components/Player';
 import GeminiDJ from './components/GeminiDJ';
 import Visualizer from './components/Visualizer';
@@ -13,7 +13,7 @@ import PlaylistCard from './components/PlaylistCard';
 import PlaylistView from './components/PlaylistView';
 import LyricsView from './components/LyricsView';
 import { storage } from './services/storage';
-import { Home, Search, Library, PlusCircle, Heart, Disc, Play, Pause, MoreHorizontal, User as UserIcon, LogOut, Loader2, ChevronLeft, ChevronRight, Upload, Music, CloudUpload, X, ListMusic, Mic2, Star, TrendingUp, Flame, Zap, Headphones } from 'lucide-react';
+import { Home, Search, Library, PlusCircle, Heart, Disc, Play, Pause, MoreHorizontal, User as UserIcon, LogOut, Loader2, ChevronLeft, ChevronRight, Upload, Music, CloudUpload, X, ListMusic, Mic2, Star, TrendingUp, Flame, Zap, Headphones, Compass, Sparkles, Clock } from 'lucide-react';
 
 const App: React.FC = () => {
   const [isAppLoading, setIsAppLoading] = useState(true);
@@ -27,10 +27,20 @@ const App: React.FC = () => {
   const [likedTrackIds, setLikedTrackIds] = useState<Set<string>>(new Set());
   const [userTracks, setUserTracks] = useState<Track[]>([]);
   const [userPlaylists, setUserPlaylists] = useState<Playlist[]>([]);
+  const [recentlyPlayed, setRecentlyPlayed] = useState<Track[]>([]);
   const [selectedPlaylist, setSelectedPlaylist] = useState<Playlist | null>(null);
   const [currentTime, setCurrentTime] = useState(0);
   const [selectedGenre, setSelectedGenre] = useState('Tất cả');
   const [bannerIndex, setBannerIndex] = useState(0);
+  const [isShuffle, setIsShuffle] = useState(false);
+  const [repeatMode, setRepeatMode] = useState<RepeatMode>(RepeatMode.OFF);
+  const [queue, setQueue] = useState<Track[]>(MOCK_TRACKS);
+  const [queueIndex, setQueueIndex] = useState(0);
+  const [sleepTimer, setSleepTimer] = useState<number | null>(null);
+  const [importUrl, setImportUrl] = useState('');
+  const [importTitle, setImportTitle] = useState('');
+  const [importArtist, setImportArtist] = useState('');
+  const [isImporting, setIsImporting] = useState(false);
   
   const audioRef = useRef<HTMLAudioElement>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -89,11 +99,20 @@ const App: React.FC = () => {
     return () => audio.removeEventListener('timeupdate', handleTimeUpdate);
   }, []);
 
+  const lastTrackIdRef = useRef<string | null>(null);
+
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
+
     if (isPlaying) {
       if (audioContextRef.current?.state === 'suspended') audioContextRef.current.resume();
+      
+      if (lastTrackIdRef.current !== currentTrack.id) {
+        audio.load();
+        lastTrackIdRef.current = currentTrack.id;
+      }
+
       const playPromise = audio.play();
       if (playPromise !== undefined) {
         playPromise.catch(error => {
@@ -104,7 +123,7 @@ const App: React.FC = () => {
     } else {
       audio.pause();
     }
-  }, [isPlaying, currentTrack]);
+  }, [isPlaying, currentTrack.id]);
 
   const handlePlayPause = () => {
     initAudioGraph();
@@ -119,27 +138,108 @@ const App: React.FC = () => {
     }
     setCurrentTrack(track);
     setIsPlaying(true);
+    
+    // Update recently played
+    setRecentlyPlayed(prev => {
+      const filtered = prev.filter(t => t.id !== track.id);
+      return [track, ...filtered].slice(0, 10);
+    });
   };
 
-  const nextTrack = () => {
-    const all = [...MOCK_TRACKS, ...userTracks];
-    const idx = all.findIndex(t => t.id === currentTrack.id);
-    const nextIdx = (idx + 1) % all.length;
-    handleTrackSelect(all[nextIdx]);
+  const nextTrack = React.useCallback(() => {
+    if (queue.length === 0) return;
+    
+    let nextIdx;
+    if (isShuffle) {
+      nextIdx = Math.floor(Math.random() * queue.length);
+    } else {
+      const idx = queue.findIndex(t => t.id === currentTrack.id);
+      nextIdx = (idx + 1) % queue.length;
+      
+      // If we reached the end and repeat is off, stop playing
+      if (idx === queue.length - 1 && repeatMode === RepeatMode.OFF) {
+        setIsPlaying(false);
+        return;
+      }
+    }
+    
+    handleTrackSelect(queue[nextIdx]);
+  }, [queue, currentTrack.id, isShuffle, repeatMode]);
+
+  const prevTrack = React.useCallback(() => {
+    if (queue.length === 0) return;
+    
+    const idx = queue.findIndex(t => t.id === currentTrack.id);
+    const prevIdx = (idx - 1 + queue.length) % queue.length;
+    handleTrackSelect(queue[prevIdx]);
+  }, [queue, currentTrack.id]);
+
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    const handleEnded = () => {
+      if (repeatMode === RepeatMode.ONE) {
+        audio.currentTime = 0;
+        audio.play();
+      } else {
+        nextTrack();
+      }
+    };
+    audio.addEventListener('ended', handleEnded);
+    return () => audio.removeEventListener('ended', handleEnded);
+  }, [repeatMode, nextTrack]);
+
+  useEffect(() => {
+    if (sleepTimer === null) return;
+    
+    const timer = setTimeout(() => {
+      setIsPlaying(false);
+      setSleepTimer(null);
+      alert('Hẹn giờ tắt nhạc đã kích hoạt. Nhạc đã dừng.');
+    }, sleepTimer * 60 * 1000);
+    
+    return () => clearTimeout(timer);
+  }, [sleepTimer]);
+
+  const handleSetSleepTimer = (minutes: number | null) => {
+    setSleepTimer(minutes);
   };
 
-  const prevTrack = () => {
-    const all = [...MOCK_TRACKS, ...userTracks];
-    const idx = all.findIndex(t => t.id === currentTrack.id);
-    const prevIdx = (idx - 1 + all.length) % all.length;
-    handleTrackSelect(all[prevIdx]);
+  const handleToggleShuffle = () => setIsShuffle(prev => !prev);
+  const handleToggleRepeat = () => {
+    setRepeatMode(prev => {
+      if (prev === RepeatMode.OFF) return RepeatMode.ALL;
+      if (prev === RepeatMode.ALL) return RepeatMode.ONE;
+      return RepeatMode.OFF;
+    });
+  };
+  const handleOpenQueue = () => navigateTo(ViewState.QUEUE);
+
+  const handleAddToPlaylist = (track: Track, playlistId: string) => {
+    const updatedPlaylists = userPlaylists.map(pl => {
+      if (pl.id === playlistId) {
+        // Avoid duplicates
+        if (pl.tracks.some(t => t.id === track.id)) return pl;
+        return { ...pl, tracks: [...pl.tracks, track] };
+      }
+      return pl;
+    });
+    setUserPlaylists(updatedPlaylists);
+    storage.saveUserPlaylists(updatedPlaylists);
+  };
+
+  const handleAddToQueue = (track: Track) => {
+    setQueue(prev => {
+      if (prev.some(t => t.id === track.id)) return prev;
+      return [...prev, track];
+    });
   };
 
   const toggleLike = (trackId: string) => {
     setLikedTrackIds(prev => {
       const next = new Set(prev);
       next.has(trackId) ? next.delete(trackId) : next.add(trackId);
-      storage.saveLikedTracks(Array.from(next));
+      storage.saveLikedTracks(Array.from(next) as string[]);
       return next;
     });
   };
@@ -200,6 +300,33 @@ const App: React.FC = () => {
     }
   };
 
+  const handleUrlImport = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!importUrl) return;
+    
+    setIsImporting(true);
+    
+    // Create a new track object from the URL
+    const newTrack: Track = {
+      id: `url-${Date.now()}`,
+      title: importTitle || 'Bản nhạc từ internet',
+      artist: importArtist || 'Nghệ sĩ ẩn danh',
+      album: 'Nguồn trực tuyến',
+      duration: '??:??',
+      coverUrl: 'https://images.unsplash.com/photo-1459749411177-042180ce673c?w=400&h=400&fit=crop',
+      audioUrl: importUrl,
+      genre: 'Internet',
+      description: `Được nhập từ: ${importUrl}`
+    };
+
+    setUserTracks([newTrack, ...userTracks]);
+    setImportUrl('');
+    setImportTitle('');
+    setImportArtist('');
+    setIsImporting(false);
+    navigateTo(ViewState.LIBRARY);
+  };
+
   const handleToggleNowPlaying = () => {
     if (view === ViewState.LYRICS) {
       setView(previousView);
@@ -255,6 +382,33 @@ const App: React.FC = () => {
           ))}
         </div>
       </section>
+      
+      {recentlyPlayed.length > 0 && (
+        <section className="animate-fade-in">
+          <div className="flex items-center justify-between mb-6">
+            <div>
+              <h2 className="text-xl font-black font-poppins flex items-center gap-2"><Clock className="text-blue-400" size={20} /> Nghe Gần Đây</h2>
+            </div>
+            <button onClick={() => setRecentlyPlayed([])} className="text-[10px] font-bold text-white/20 hover:text-white uppercase tracking-widest">Xóa lịch sử</button>
+          </div>
+          <div className="flex gap-4 overflow-x-auto pb-2 no-scrollbar -mx-2 px-2">
+            {recentlyPlayed.map(track => (
+              <div key={track.id} onClick={() => handleTrackSelect(track)} className="flex-shrink-0 w-32 group cursor-pointer">
+                <div className="relative aspect-square mb-2 rounded-xl overflow-hidden shadow-lg border border-white/5 transition-all">
+                  <img src={track.coverUrl} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" alt={track.title} />
+                  <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                    <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center shadow-xl">
+                      <Play fill="white" size={16} className="ml-0.5" />
+                    </div>
+                  </div>
+                </div>
+                <h3 className="font-bold text-[11px] text-white truncate group-hover:text-blue-400 transition-colors">{track.title}</h3>
+                <p className="text-[9px] text-white/40 truncate">{track.artist}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       <div className="flex items-center gap-3 overflow-x-auto pb-4 no-scrollbar -mx-2 px-2">
         {GENRES.map(genre => (
@@ -264,82 +418,274 @@ const App: React.FC = () => {
         ))}
       </div>
 
-      {(selectedGenre === 'Tất cả' || selectedGenre === 'DJ / Vinahouse') && (
-        <section className="animate-fade-in">
+      {selectedGenre === 'Tất cả' && (
+        <section id="topics" className="animate-fade-in">
           <div className="flex items-center justify-between mb-8">
             <div>
-              <h2 className="text-3xl font-black font-poppins flex items-center gap-3"><Headphones className="text-yellow-500" size={32} /> DJ Spotlight</h2>
-              <p className="text-sm text-white/40 italic mt-1">Nơi hội tụ những bản phối căng nhất từ Thái Hoàng, Future, Win...</p>
+              <h2 className="text-2xl font-black font-poppins flex items-center gap-2"><Sparkles className="text-yellow-500" size={24} /> Chủ Đề Hot</h2>
+              <p className="text-sm text-white/40">Giai điệu phù hợp với mọi khoảnh khắc</p>
             </div>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-            {MOCK_TRACKS.filter(t => t.genre === 'DJ / Vinahouse').map(track => (
-              <div key={track.id} onClick={() => handleTrackSelect(track)} className="group relative bg-[#18181b] rounded-2xl overflow-hidden cursor-pointer border border-white/5 transition-all hover:scale-[1.02] hover:border-yellow-500/50 shadow-xl">
-                <div className="aspect-[4/5] relative">
-                  <img src={track.coverUrl} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" alt={track.title} />
-                  <div className="absolute inset-0 bg-gradient-to-t from-black via-black/20 to-transparent opacity-80"></div>
-                  <div className="absolute bottom-5 left-5 right-5">
-                    <div className="flex items-center gap-2 mb-2">
-                       <span className="px-2 py-0.5 bg-yellow-500 text-[9px] font-black text-black rounded uppercase tracking-tighter">Vinahouse 2024</span>
+          <div className="flex gap-6 overflow-x-auto pb-6 no-scrollbar -mx-2 px-2">
+            {TOPICS.map(topic => (
+              <div key={topic.id} className="flex-shrink-0 w-40 group cursor-pointer">
+                <div className="relative aspect-square mb-3 rounded-2xl overflow-hidden shadow-lg border border-white/5 transition-all">
+                  <img src={topic.coverUrl} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" alt={topic.name} />
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-4">
+                    <div className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center shadow-xl">
+                      <Play fill="white" size={16} className="ml-0.5" />
                     </div>
-                    <h3 className="text-lg font-bold text-white truncate">{track.title}</h3>
-                    <p className="text-sm text-white/60">{track.artist}</p>
-                  </div>
-                  <div className="absolute top-5 right-5 w-12 h-12 bg-yellow-500 rounded-full flex items-center justify-center shadow-2xl opacity-0 translate-y-3 group-hover:opacity-100 group-hover:translate-y-0 transition-all duration-300">
-                    <Play size={24} fill="black" className="ml-1 text-black" />
                   </div>
                 </div>
+                <h3 className="font-bold text-sm text-white text-center group-hover:text-blue-400 transition-colors">{topic.name}</h3>
               </div>
             ))}
           </div>
         </section>
       )}
 
-      <section className="animate-fade-in">
+      <section id="charts" className="animate-fade-in">
         <div className="flex justify-between items-end mb-6">
           <div>
-            <h2 className="text-2xl font-black font-poppins flex items-center gap-2"><TrendingUp className="text-blue-500" size={24} /> {selectedGenre === 'Tất cả' ? 'BXH Xu hướng' : `Đề xuất ${selectedGenre}`}</h2>
-            <p className="text-sm text-white/40">Giai điệu đang được yêu thích nhất</p>
+            <h2 className="text-2xl font-black font-poppins flex items-center gap-2"><TrendingUp className="text-blue-500" size={24} /> {selectedGenre === 'Tất cả' ? 'BXH Nhạc Việt' : `Đề xuất ${selectedGenre}`}</h2>
+            <p className="text-sm text-white/40">Những bài hát đang làm mưa làm gió</p>
           </div>
+          <button className="text-xs font-bold text-blue-400 hover:underline uppercase tracking-widest">Xem tất cả</button>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {getFilteredTracks().slice(0, 6).map((track, idx) => (
             <div key={track.id} onClick={() => handleTrackSelect(track)} className="group flex items-center gap-4 p-4 rounded-2xl bg-white/5 border border-white/5 hover:bg-white/10 hover:border-blue-500/30 transition-all cursor-pointer relative">
-              <div className="relative w-24 h-24 flex-shrink-0">
+              <div className="relative w-20 h-20 flex-shrink-0">
                 <img src={track.coverUrl} className="w-full h-full object-cover rounded-xl shadow-lg" alt={track.title} />
-                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center rounded-xl"><Play size={24} fill="white" /></div>
-                <div className="absolute -top-2 -left-2 w-8 h-8 bg-blue-600 text-white text-[10px] font-black rounded-full flex items-center justify-center border-2 border-[#0a0a0c] shadow-lg">#{idx + 1}</div>
+                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center rounded-xl"><Play size={20} fill="white" /></div>
+                <div className={`absolute -top-2 -left-2 w-7 h-7 text-[10px] font-black rounded-full flex items-center justify-center border-2 border-[#0a0a0c] shadow-lg ${idx === 0 ? 'bg-yellow-500 text-black' : idx === 1 ? 'bg-gray-300 text-black' : idx === 2 ? 'bg-orange-500 text-white' : 'bg-blue-600 text-white'}`}>
+                  {idx + 1}
+                </div>
               </div>
               <div className="min-w-0 flex-1">
-                <h3 className="font-bold text-white truncate group-hover:text-blue-400 transition-colors">{track.title}</h3>
+                <h3 className="font-bold text-sm text-white truncate group-hover:text-blue-400 transition-colors">{track.title}</h3>
                 <p className="text-xs text-white/40 truncate">{track.artist}</p>
                 <div className="flex items-center gap-2 mt-2">
-                   <span className={`text-[10px] font-bold uppercase tracking-widest ${track.genre.includes('DJ') ? 'text-yellow-500' : 'text-blue-500'}`}>{track.genre}</span>
-                   {idx < 3 && <Flame size={14} className="text-orange-500" />}
+                   <span className={`text-[9px] font-bold uppercase tracking-widest ${track.genre.includes('DJ') ? 'text-yellow-500' : 'text-blue-500'}`}>{track.genre}</span>
+                   {idx < 3 && <Flame size={12} className="text-orange-500" />}
                 </div>
               </div>
             </div>
           ))}
         </div>
       </section>
+
+      <section id="new-releases" className="animate-fade-in">
+        <div className="flex items-center justify-between mb-8">
+          <div>
+            <h2 className="text-2xl font-black font-poppins flex items-center gap-2"><Music className="text-emerald-500" size={24} /> Mới Phát Hành</h2>
+            <p className="text-sm text-white/40">Những bản nhạc vừa cập bến SoundTrack</p>
+          </div>
+        </div>
+        <div className="flex gap-6 overflow-x-auto pb-6 no-scrollbar -mx-2 px-2">
+          {MOCK_TRACKS.slice(-6).reverse().map(track => (
+            <div key={track.id} onClick={() => handleTrackSelect(track)} className="flex-shrink-0 w-48 group cursor-pointer">
+              <div className="relative aspect-square mb-3 rounded-2xl overflow-hidden shadow-lg border border-white/5 group-hover:border-emerald-500/50 transition-all">
+                <img src={track.coverUrl} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" alt={track.title} />
+                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                  <div className="w-12 h-12 bg-emerald-500 rounded-full flex items-center justify-center shadow-xl scale-90 group-hover:scale-100 transition-transform">
+                    <Play fill="black" className="text-black ml-1" size={24} />
+                  </div>
+                </div>
+              </div>
+              <h3 className="font-bold text-white truncate group-hover:text-emerald-400 transition-colors">{track.title}</h3>
+              <p className="text-xs text-white/40 truncate">{track.artist}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {selectedGenre === 'Tất cả' && (
+        <>
+          <section id="top-100" className="animate-fade-in">
+            <div className="flex items-center justify-between mb-8">
+              <div>
+                <h2 className="text-2xl font-black font-poppins flex items-center gap-2"><Star className="text-yellow-500" size={24} /> Top 100</h2>
+                <p className="text-sm text-white/40">Những ca khúc hay nhất được tuyển chọn</p>
+              </div>
+              <button className="text-xs font-bold text-blue-400 hover:underline uppercase tracking-widest">Xem tất cả</button>
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-6">
+              {RECOMMENDED_PLAYLISTS.slice(0, 5).map(playlist => (
+                <div key={playlist.id} onClick={() => handleOpenPlaylist(playlist)} className="group cursor-pointer">
+                  <div className="relative aspect-square mb-3 rounded-2xl overflow-hidden shadow-lg border border-white/5 transition-all">
+                    <img src={playlist.coverUrl} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" alt={playlist.name} />
+                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                      <div className="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center shadow-xl">
+                        <Play fill="white" size={20} className="ml-0.5" />
+                      </div>
+                    </div>
+                  </div>
+                  <h3 className="font-bold text-sm text-white truncate group-hover:text-blue-400 transition-colors">{playlist.name}</h3>
+                  <p className="text-[10px] text-white/40 mt-1 uppercase font-bold tracking-tighter">Top 100 • 2024</p>
+                </div>
+              ))}
+            </div>
+          </section>
+          <section id="suggested" className="animate-fade-in">
+            <div className="flex items-center justify-between mb-8">
+              <div>
+                <h2 className="text-2xl font-black font-poppins flex items-center gap-2"><ListMusic className="text-purple-500" size={24} /> Playlist Gợi Ý</h2>
+                <p className="text-sm text-white/40">Khám phá âm nhạc theo phong cách riêng</p>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+              {RECOMMENDED_PLAYLISTS.slice(5).map(playlist => (
+                <PlaylistCard key={playlist.id} playlist={playlist} onClick={() => handleOpenPlaylist(playlist)} />
+              ))}
+            </div>
+          </section>
+        </>
+      )}
     </div>
   );
 
   const renderMainContent = () => {
     switch (view) {
       case ViewState.SEARCH:
-        return <SearchView allTracks={[...MOCK_TRACKS, ...userTracks]} currentTrack={currentTrack} isPlaying={isPlaying} onTrackSelect={handleTrackSelect} onToggleLike={toggleLike} onDownload={handleDownload} likedTrackIds={likedTrackIds} />;
+        return <SearchView 
+          allTracks={[...MOCK_TRACKS, ...userTracks]} 
+          currentTrack={currentTrack} 
+          isPlaying={isPlaying} 
+          onTrackSelect={handleTrackSelect} 
+          onToggleLike={toggleLike} 
+          onDownload={handleDownload} 
+          likedTrackIds={likedTrackIds}
+          userPlaylists={userPlaylists}
+          onAddToPlaylist={handleAddToPlaylist}
+          onAddToQueue={handleAddToQueue}
+          onCreatePlaylist={handleCreatePlaylist}
+        />;
       case ViewState.LIBRARY:
-        return <LibraryView user={user} onOpenAuth={() => { setAuthView('login'); setShowAuthModal(true); }} likedTracks={[...MOCK_TRACKS, ...userTracks].filter(t => likedTrackIds.has(t.id))} currentTrack={currentTrack} isPlaying={isPlaying} onTrackSelect={handleTrackSelect} onToggleLike={toggleLike} onDownload={handleDownload} likedTrackIds={likedTrackIds} />;
+        return <LibraryView 
+          user={user} 
+          onOpenAuth={() => { setAuthView('login'); setShowAuthModal(true); }} 
+          likedTracks={[...MOCK_TRACKS, ...userTracks].filter(t => likedTrackIds.has(t.id))} 
+          currentTrack={currentTrack} 
+          isPlaying={isPlaying} 
+          onTrackSelect={handleTrackSelect} 
+          onToggleLike={toggleLike} 
+          onDownload={handleDownload} 
+          likedTrackIds={likedTrackIds}
+          userPlaylists={userPlaylists}
+          onAddToPlaylist={handleAddToPlaylist}
+          onAddToQueue={handleAddToQueue}
+          onCreatePlaylist={handleCreatePlaylist}
+        />;
       case ViewState.PLAYLIST_DETAIL:
-        return selectedPlaylist ? <PlaylistView playlist={selectedPlaylist} currentTrack={currentTrack} isPlaying={isPlaying} onTrackSelect={handleTrackSelect} onToggleLike={toggleLike} onDownload={handleDownload} likedTrackIds={likedTrackIds} onBack={() => navigateTo(previousView)} /> : null;
-      case ViewState.UPLOAD:
+        const currentPlaylist = selectedPlaylist ? (userPlaylists.find(pl => pl.id === selectedPlaylist.id) || RECOMMENDED_PLAYLISTS.find(pl => pl.id === selectedPlaylist.id) || selectedPlaylist) : null;
+        return currentPlaylist ? <PlaylistView 
+          playlist={currentPlaylist} 
+          currentTrack={currentTrack} 
+          isPlaying={isPlaying} 
+          onTrackSelect={handleTrackSelect} 
+          onToggleLike={toggleLike} 
+          onDownload={handleDownload} 
+          likedTrackIds={likedTrackIds} 
+          onBack={() => navigateTo(previousView)} 
+          userPlaylists={userPlaylists}
+          onAddToPlaylist={handleAddToPlaylist}
+          onAddToQueue={handleAddToQueue}
+          onCreatePlaylist={handleCreatePlaylist}
+        /> : null;
+      case ViewState.QUEUE:
         return (
           <div className="animate-fade-in space-y-8">
-            <div className="p-12 border-2 border-dashed border-white/10 rounded-3xl flex flex-col items-center justify-center text-center space-y-6 bg-white/5">
-              <div className="w-20 h-20 bg-blue-600/20 rounded-full flex items-center justify-center text-blue-500"><CloudUpload size={40} /></div>
-              <div><h2 className="text-2xl font-bold">Tải lên âm nhạc của bạn</h2><p className="text-white/40 max-w-sm mt-2">Chia sẻ những giai điệu yêu thích từ máy tính của bạn.</p></div>
-              <label className="bg-blue-600 hover:bg-blue-500 px-8 py-3 rounded-full font-bold cursor-pointer transition-transform hover:scale-105">Chọn tệp MP3<input type="file" accept="audio/mp3" className="hidden" onChange={handleFileUpload} /></label>
+            <div className="flex items-center justify-between">
+              <h1 className="text-4xl font-black font-poppins">Danh sách chờ</h1>
+              <button onClick={() => setQueue([])} className="text-sm text-white/40 hover:text-white transition-colors">Xóa hết</button>
+            </div>
+            <TrackList 
+              tracks={queue}
+              currentTrack={currentTrack}
+              isPlaying={isPlaying}
+              onTrackSelect={handleTrackSelect}
+              onToggleLike={toggleLike}
+              onDownload={handleDownload}
+              likedTrackIds={likedTrackIds}
+              userPlaylists={userPlaylists}
+              onAddToPlaylist={handleAddToPlaylist}
+              onAddToQueue={handleAddToQueue}
+              onCreatePlaylist={handleCreatePlaylist}
+            />
+          </div>
+        );
+      case ViewState.UPLOAD:
+        return (
+          <div className="animate-fade-in space-y-12">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+              {/* Local File Upload */}
+              <div className="p-12 border-2 border-dashed border-white/10 rounded-3xl flex flex-col items-center justify-center text-center space-y-6 bg-white/5 hover:bg-white/10 transition-all group">
+                <div className="w-20 h-20 bg-blue-600/20 rounded-full flex items-center justify-center text-blue-500 group-hover:scale-110 transition-transform"><CloudUpload size={40} /></div>
+                <div>
+                  <h2 className="text-2xl font-bold">Tải lên từ máy tính</h2>
+                  <p className="text-white/40 max-w-sm mt-2">Chọn tệp âm thanh (MP3) trực tiếp từ thiết bị của bạn.</p>
+                </div>
+                <label className="bg-blue-600 hover:bg-blue-500 px-8 py-3 rounded-full font-bold cursor-pointer transition-transform hover:scale-105">
+                  Chọn tệp MP3
+                  <input type="file" accept="audio/mp3" className="hidden" onChange={handleFileUpload} />
+                </label>
+              </div>
+
+              {/* URL Import */}
+              <div className="p-12 border border-white/10 rounded-3xl flex flex-col space-y-6 bg-white/5">
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 bg-emerald-600/20 rounded-full flex items-center justify-center text-emerald-500"><Headphones size={24} /></div>
+                  <div>
+                    <h2 className="text-xl font-bold">Nhập từ nguồn mạng</h2>
+                    <p className="text-white/40 text-sm">Dán link trực tiếp của tệp âm thanh.</p>
+                  </div>
+                </div>
+                
+                <form onSubmit={handleUrlImport} className="space-y-4">
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-white/40 uppercase tracking-widest">Link âm thanh (URL)</label>
+                    <input 
+                      type="url" 
+                      required
+                      placeholder="https://example.com/song.mp3"
+                      className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-emerald-500 transition-colors"
+                      value={importUrl}
+                      onChange={(e) => setImportUrl(e.target.value)}
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <label className="text-xs font-bold text-white/40 uppercase tracking-widest">Tên bài hát</label>
+                      <input 
+                        type="text" 
+                        placeholder="Tên bài hát"
+                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-emerald-500 transition-colors"
+                        value={importTitle}
+                        onChange={(e) => setImportTitle(e.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-xs font-bold text-white/40 uppercase tracking-widest">Nghệ sĩ</label>
+                      <input 
+                        type="text" 
+                        placeholder="Nghệ sĩ"
+                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-emerald-500 transition-colors"
+                        value={importArtist}
+                        onChange={(e) => setImportArtist(e.target.value)}
+                      />
+                    </div>
+                  </div>
+                  <button 
+                    type="submit" 
+                    disabled={isImporting || !importUrl}
+                    className="w-full bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed text-white py-3 rounded-xl font-bold transition-all flex items-center justify-center gap-2"
+                  >
+                    {isImporting ? <Loader2 className="animate-spin" size={20} /> : <PlusCircle size={20} />}
+                    THÊM VÀO THƯ VIỆN
+                  </button>
+                </form>
+              </div>
             </div>
           </div>
         );
@@ -360,10 +706,16 @@ const App: React.FC = () => {
             <h1 className="text-xl font-bold font-poppins">SoundTrack</h1>
           </div>
           <nav className="space-y-1">
-            <NavItem icon={<Home size={20} />} label="Trang chủ" active={view === ViewState.HOME} onClick={() => navigateTo(ViewState.HOME)} />
+            <NavItem icon={<Home size={20} />} label="Trang chủ" active={view === ViewState.HOME} onClick={() => { navigateTo(ViewState.HOME); document.querySelector('main')?.scrollTo({ top: 0, behavior: 'smooth' }); }} />
+            <NavItem icon={<Compass size={20} />} label="Khám phá" active={false} onClick={() => { navigateTo(ViewState.HOME); document.getElementById('suggested')?.scrollIntoView({ behavior: 'smooth' }); }} />
+            <NavItem icon={<TrendingUp size={20} />} label="BXH" active={false} onClick={() => { navigateTo(ViewState.HOME); document.getElementById('charts')?.scrollIntoView({ behavior: 'smooth' }); }} />
+            <NavItem icon={<Sparkles size={20} />} label="Chủ đề" active={false} onClick={() => { navigateTo(ViewState.HOME); document.getElementById('topics')?.scrollIntoView({ behavior: 'smooth' }); }} />
             <NavItem icon={<Search size={20} />} label="Tìm kiếm" active={view === ViewState.SEARCH} onClick={() => navigateTo(ViewState.SEARCH)} />
             <NavItem icon={<Library size={20} />} label="Thư viện" active={view === ViewState.LIBRARY} onClick={() => navigateTo(ViewState.LIBRARY)} />
-            <NavItem icon={<Upload size={20} />} label="Tải lên" active={view === ViewState.UPLOAD} onClick={() => navigateTo(ViewState.UPLOAD)} />
+            <div className="relative">
+              <NavItem icon={<Upload size={20} />} label="Tải lên" active={view === ViewState.UPLOAD} onClick={() => navigateTo(ViewState.UPLOAD)} />
+              <span className="absolute right-4 top-1/2 -translate-y-1/2 px-1.5 py-0.5 bg-blue-500 text-[8px] font-black text-white rounded uppercase animate-pulse">New</span>
+            </div>
           </nav>
           <div className="space-y-4 flex-1 overflow-y-auto pr-2 custom-scrollbar">
             <h3 className="text-[10px] font-bold text-white/30 uppercase tracking-widest px-2">Playlist</h3>
@@ -384,6 +736,17 @@ const App: React.FC = () => {
               <button onClick={() => setView(previousView)} className="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center text-white/60 hover:text-white hover:bg-white/10 transition-colors shadow-sm"><ChevronLeft size={20} /></button>
               <button className="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center text-white/20 cursor-not-allowed"><ChevronRight size={20} /></button>
             </div>
+            <div className="flex items-center gap-4 flex-1 max-w-xl mx-8">
+              <div className="relative w-full group">
+                <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-white/20 group-focus-within:text-blue-500 transition-colors" size={18} />
+                <input 
+                  type="text" 
+                  placeholder="Tìm bài hát, nghệ sĩ, playlist..." 
+                  onClick={() => navigateTo(ViewState.SEARCH)}
+                  className="w-full bg-white/5 border border-white/10 rounded-full py-2.5 pl-12 pr-4 text-sm focus:outline-none focus:border-blue-500/50 focus:bg-white/10 transition-all"
+                />
+              </div>
+            </div>
             <div className="flex items-center gap-4">
               {!user ? (
                 <><button onClick={() => { setAuthView('register'); setShowAuthModal(true); }} className="text-white/60 hover:text-white font-semibold text-xs tracking-widest uppercase">Đăng ký</button>
@@ -398,10 +761,33 @@ const App: React.FC = () => {
           </header>
           <div className="p-6 md:p-10 max-w-6xl mx-auto min-h-full transition-all duration-500">{renderMainContent()}</div>
         </main>
-        <aside className="w-96 glass border-l border-white/5 p-6 hidden lg:block overflow-hidden"><GeminiDJ currentTrack={currentTrack} /></aside>
+        <aside className="w-96 glass border-l border-white/5 p-6 hidden lg:block overflow-hidden">
+          <GeminiDJ 
+            currentTrack={currentTrack} 
+            allTracks={[...MOCK_TRACKS, ...userTracks]}
+            onTrackSelect={handleTrackSelect}
+          />
+        </aside>
       </div>
-      <audio ref={audioRef} src={currentTrack.audioUrl} onEnded={nextTrack} preload="auto" />
-      <Player currentTrack={currentTrack} isPlaying={isPlaying} onPlayPause={handlePlayPause} onNext={nextTrack} onPrev={prevTrack} onOpenLyrics={handleToggleNowPlaying} audioRef={audioRef} onToggleLike={toggleLike} isLiked={likedTrackIds.has(currentTrack.id)} />
+      <audio ref={audioRef} src={currentTrack.audioUrl} preload="auto" crossOrigin="anonymous" />
+      <Player 
+        currentTrack={currentTrack} 
+        isPlaying={isPlaying} 
+        onPlayPause={handlePlayPause} 
+        onNext={nextTrack} 
+        onPrev={prevTrack} 
+        onOpenLyrics={handleToggleNowPlaying} 
+        audioRef={audioRef} 
+        onToggleLike={toggleLike} 
+        isLiked={likedTrackIds.has(currentTrack.id)}
+        isShuffle={isShuffle}
+        onToggleShuffle={handleToggleShuffle}
+        repeatMode={repeatMode}
+        onToggleRepeat={handleToggleRepeat}
+        onOpenQueue={handleOpenQueue}
+        sleepTimer={sleepTimer}
+        onSetSleepTimer={handleSetSleepTimer}
+      />
     </div>
   );
 };

@@ -1,14 +1,16 @@
 
 import React, { useState } from 'react';
 import { getMoodPlaylist, explainSong, generateLyrics } from '../services/geminiService';
-import { Sparkles, Brain, Music, Wand2, Loader2, Play, Star } from 'lucide-react';
+import { Sparkles, Brain, Music, Wand2, Loader2, Play, Star, Youtube } from 'lucide-react';
 import { Track, AIRecommendation } from '../types';
 
 interface GeminiDJProps {
   currentTrack: Track;
+  allTracks: Track[];
+  onTrackSelect: (track: Track) => void;
 }
 
-const GeminiDJ: React.FC<GeminiDJProps> = ({ currentTrack }) => {
+const GeminiDJ: React.FC<GeminiDJProps> = ({ currentTrack, allTracks, onTrackSelect }) => {
   const [mood, setMood] = useState('');
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState<AIRecommendation[]>([]);
@@ -22,6 +24,33 @@ const GeminiDJ: React.FC<GeminiDJProps> = ({ currentTrack }) => {
     const recs = await getMoodPlaylist(mood);
     setResults(recs);
     setLoading(false);
+  };
+
+  const handlePlayRecommendation = (rec: AIRecommendation) => {
+    // Try to find the track in our library
+    const existingTrack = allTracks.find(t => 
+      t.title.toLowerCase().includes(rec.title.toLowerCase()) || 
+      rec.title.toLowerCase().includes(t.title.toLowerCase())
+    );
+
+    if (existingTrack) {
+      onTrackSelect(existingTrack);
+    } else {
+      // Create a virtual track if not found
+      const virtualTrack: Track = {
+        id: `ai-${Date.now()}-${Math.random()}`,
+        title: rec.title,
+        artist: rec.artist,
+        album: 'AI Recommendation',
+        duration: '03:30',
+        coverUrl: `https://picsum.photos/seed/${rec.title}/800/800`,
+        audioUrl: 'https://cdn.pixabay.com/audio/2022/03/15/audio_783a4a7511.mp3', // Fallback audio
+        genre: 'AI Curated',
+        description: rec.reason,
+        youtubeUrl: rec.youtubeUrl
+      };
+      onTrackSelect(virtualTrack);
+    }
   };
 
   const handleExplain = async () => {
@@ -93,18 +122,36 @@ const GeminiDJ: React.FC<GeminiDJProps> = ({ currentTrack }) => {
             {results.length > 0 && (
               <div className="space-y-3">
                 {results.map((rec, i) => (
-                  <div key={i} className="p-3 bg-white/5 border border-white/5 rounded-xl hover:bg-white/10 transition-colors group">
+                  <div 
+                    key={i} 
+                    onClick={() => handlePlayRecommendation(rec)}
+                    className="p-3 bg-white/5 border border-white/5 rounded-xl hover:bg-white/10 transition-colors group cursor-pointer"
+                  >
                     <div className="flex justify-between items-start mb-1">
                       <div>
                         <div className="flex items-center gap-1.5">
-                           <h4 className="font-semibold text-sm">{rec.title}</h4>
+                           <h4 className="font-semibold text-sm group-hover:text-blue-400 transition-colors">{rec.title}</h4>
                            <Star size={10} className="text-yellow-500 fill-current" />
                         </div>
                         <p className="text-xs text-white/50">{rec.artist}</p>
                       </div>
-                      <button className="opacity-0 group-hover:opacity-100 text-blue-400 transition-opacity">
-                        <Play size={16} />
-                      </button>
+                      <div className="flex items-center gap-2">
+                        {rec.youtubeUrl && (
+                          <a 
+                            href={rec.youtubeUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={(e) => e.stopPropagation()}
+                            className="opacity-0 group-hover:opacity-100 text-white/40 hover:text-[#FF0000] transition-all p-1"
+                            title="Xem trên YouTube"
+                          >
+                            <Youtube size={16} />
+                          </a>
+                        )}
+                        <button className="opacity-0 group-hover:opacity-100 text-blue-400 transition-opacity bg-blue-500/10 p-1.5 rounded-full">
+                          <Play size={16} fill="currentColor" />
+                        </button>
+                      </div>
                     </div>
                     <p className="text-[11px] text-white/40 leading-relaxed italic">"{rec.reason}"</p>
                   </div>

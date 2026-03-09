@@ -16,6 +16,7 @@ export interface Track {
   description?: string;
   isLocal?: boolean;
   lyrics?: LyricLine[];
+  youtubeUrl?: string;
 }
 
 export interface Playlist {
@@ -35,13 +36,21 @@ export enum ViewState {
   AI_EXPLORER = 'ai_explorer',
   LYRICS = 'lyrics',
   UPLOAD = 'upload',
-  PLAYLIST_DETAIL = 'playlist_detail'
+  PLAYLIST_DETAIL = 'playlist_detail',
+  QUEUE = 'queue'
+}
+
+export enum RepeatMode {
+  OFF = 'off',
+  ALL = 'all',
+  ONE = 'one'
 }
 
 export interface AIRecommendation {
   title: string;
   artist: string;
   reason: string;
+  youtubeUrl?: string;
 }
 
 export interface User {

@@ -1,6 +1,6 @@
 {
-  "name": "SoundTrack",
-  "description": "",
+  "name": "SoundTrack - NhacCuaTui Edition",
+  "description": "Trải nghiệm âm nhạc đỉnh cao với giao diện hiện đại phong cách NhacCuaTui và hỗ trợ AI từ Gemini.",
   "requestFramePermissions": [
     "microphone"
   ]

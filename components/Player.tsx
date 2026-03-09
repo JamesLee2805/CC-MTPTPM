@@ -1,7 +1,7 @@
 
-import React, { useState, useEffect } from 'react';
-import { Track } from '../types';
-import { Play, Pause, SkipBack, SkipForward, Volume2, Repeat, Shuffle, Maximize2, Heart, Mic2, ChevronUp } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Track, RepeatMode } from '../types';
+import { Play, Pause, SkipBack, SkipForward, Volume2, Volume1, VolumeX, Repeat, Shuffle, Maximize2, Heart, Mic2, ChevronUp, Youtube, ListMusic, Clock } from 'lucide-react';
 
 interface PlayerProps {
   currentTrack: Track;
@@ -13,6 +13,13 @@ interface PlayerProps {
   audioRef: React.RefObject<HTMLAudioElement>;
   onToggleLike: (trackId: string) => void;
   isLiked: boolean;
+  isShuffle: boolean;
+  onToggleShuffle: () => void;
+  repeatMode: RepeatMode;
+  onToggleRepeat: () => void;
+  onOpenQueue: () => void;
+  sleepTimer: number | null;
+  onSetSleepTimer: (minutes: number | null) => void;
 }
 
 const Player: React.FC<PlayerProps> = ({ 
@@ -24,10 +31,21 @@ const Player: React.FC<PlayerProps> = ({
   onOpenLyrics,
   audioRef,
   onToggleLike,
-  isLiked
+  isLiked,
+  isShuffle,
+  onToggleShuffle,
+  repeatMode,
+  onToggleRepeat,
+  onOpenQueue,
+  sleepTimer,
+  onSetSleepTimer
 }) => {
   const [progress, setProgress] = useState(0);
   const [duration, setDuration] = useState(0);
+  const [volume, setVolume] = useState(0.7);
+  const [isMuted, setIsMuted] = useState(false);
+  const [showSleepMenu, setShowSleepMenu] = useState(false);
+  const prevVolumeRef = useRef(0.7);
 
   useEffect(() => {
     const audio = audioRef.current;
@@ -41,11 +59,20 @@ const Player: React.FC<PlayerProps> = ({
     audio.addEventListener('timeupdate', updateProgress);
     audio.addEventListener('loadedmetadata', updateProgress);
 
+    // Set initial volume
+    audio.volume = isMuted ? 0 : volume;
+
     return () => {
       audio.removeEventListener('timeupdate', updateProgress);
       audio.removeEventListener('loadedmetadata', updateProgress);
     };
   }, [audioRef]);
+
+  useEffect(() => {
+    if (audioRef.current) {
+      audioRef.current.volume = isMuted ? 0 : volume;
+    }
+  }, [volume, isMuted, audioRef]);
 
   const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
     const time = parseFloat(e.target.value);
@@ -55,10 +82,37 @@ const Player: React.FC<PlayerProps> = ({
     }
   };
 
+  const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const newVolume = parseFloat(e.target.value);
+    setVolume(newVolume);
+    if (newVolume > 0) {
+      setIsMuted(false);
+    } else {
+      setIsMuted(true);
+    }
+  };
+
+  const toggleMute = () => {
+    if (isMuted) {
+      setVolume(prevVolumeRef.current);
+      setIsMuted(false);
+    } else {
+      prevVolumeRef.current = volume;
+      setVolume(0);
+      setIsMuted(true);
+    }
+  };
+
   const formatTime = (time: number) => {
     const mins = Math.floor(time / 60);
     const secs = Math.floor(time % 60);
     return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  const getVolumeIcon = () => {
+    if (isMuted || volume === 0) return <VolumeX size={18} />;
+    if (volume < 0.5) return <Volume1 size={18} />;
+    return <Volume2 size={18} />;
   };
 
   return (
@@ -90,7 +144,13 @@ const Player: React.FC<PlayerProps> = ({
         {/* Controls */}
         <div className="flex flex-col items-center gap-1.5 w-1/3">
           <div className="flex items-center gap-4 md:gap-7">
-            <button className="hidden md:block text-white/30 hover:text-white transition-colors"><Shuffle size={16} /></button>
+            <button 
+              onClick={onToggleShuffle}
+              className={`hidden md:block transition-colors ${isShuffle ? 'text-blue-500' : 'text-white/30 hover:text-white'}`}
+              title="Phát ngẫu nhiên"
+            >
+              <Shuffle size={16} />
+            </button>
             <button onClick={onPrev} className="text-white hover:text-blue-400 transition-all hover:scale-110"><SkipBack size={22} /></button>
             <button 
               onClick={onPlayPause}
@@ -99,26 +159,39 @@ const Player: React.FC<PlayerProps> = ({
               {isPlaying ? <Pause size={22} fill="black" /> : <Play size={22} fill="black" className="ml-1" />}
             </button>
             <button onClick={onNext} className="text-white hover:text-blue-400 transition-all hover:scale-110"><SkipForward size={22} /></button>
-            <button className="hidden md:block text-white/30 hover:text-white transition-colors"><Repeat size={16} /></button>
+            <button 
+              onClick={onToggleRepeat}
+              className={`hidden md:block transition-colors relative ${repeatMode !== RepeatMode.OFF ? 'text-blue-500' : 'text-white/30 hover:text-white'}`}
+              title="Lặp lại"
+            >
+              <Repeat size={16} />
+              {repeatMode === RepeatMode.ONE && <span className="absolute -top-1 -right-1 text-[8px] font-bold bg-blue-500 text-white rounded-full w-3 h-3 flex items-center justify-center">1</span>}
+            </button>
           </div>
           
           <div className="flex items-center gap-3 w-full max-w-md group/slider">
-            <span className="text-[9px] font-medium text-white/30 tabular-nums w-8 text-right">{formatTime(progress)}</span>
-            <div className="relative flex-1 py-2">
+            <span className="text-[10px] font-bold text-white/20 tabular-nums w-8 text-right">{formatTime(progress)}</span>
+            <div className="relative flex-1 py-3 cursor-pointer group/bar">
+              <div className="absolute inset-0 flex items-center">
+                <div className="w-full h-1 bg-white/5 rounded-full overflow-hidden">
+                  <div 
+                    className="h-full bg-blue-600 rounded-full relative transition-all duration-150" 
+                    style={{ width: `${(progress / (duration || 1)) * 100}%` }}
+                  >
+                    <div className="absolute right-0 top-1/2 -translate-y-1/2 w-3 h-3 bg-white rounded-full shadow-xl opacity-0 group-hover/bar:opacity-100 transition-opacity"></div>
+                  </div>
+                </div>
+              </div>
               <input 
                 type="range"
                 min="0"
                 max={duration || 100}
                 value={progress}
                 onChange={handleSeek}
-                className="w-full h-1 bg-white/10 rounded-full appearance-none cursor-pointer accent-blue-500 hover:accent-blue-400 transition-all"
+                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
               />
-              <div 
-                className="absolute top-1/2 left-0 h-1 bg-blue-500 rounded-full pointer-events-none -translate-y-1/2 group-hover/slider:bg-blue-400" 
-                style={{ width: `${(progress / (duration || 1)) * 100}%` }}
-              ></div>
             </div>
-            <span className="text-[9px] font-medium text-white/30 tabular-nums w-8">{formatTime(duration)}</span>
+            <span className="text-[10px] font-bold text-white/20 tabular-nums w-8">{formatTime(duration)}</span>
           </div>
         </div>
 
@@ -132,11 +205,79 @@ const Player: React.FC<PlayerProps> = ({
             <Mic2 size={20} />
           </button>
           <div className="hidden lg:flex items-center gap-2 group/vol">
-            <Volume2 size={18} className="text-white/40 group-hover/vol:text-white transition-colors" />
-            <div className="w-20 h-1 bg-white/10 rounded-full overflow-hidden cursor-pointer">
-              <div className="w-2/3 h-full bg-white/40 group-hover/vol:bg-blue-500 transition-all rounded-full"></div>
+            <button 
+              onClick={toggleMute}
+              className="text-white/20 hover:text-white transition-colors"
+            >
+              {getVolumeIcon()}
+            </button>
+            <div className="relative w-24 h-1 flex items-center group/vol-slider cursor-pointer">
+              <div className="w-full h-1 bg-white/5 rounded-full overflow-hidden">
+                <div 
+                  className="h-full bg-white/40 group-hover/vol-slider:bg-blue-500 rounded-full relative transition-all" 
+                  style={{ width: `${volume * 100}%` }}
+                >
+                  <div className="absolute right-0 top-1/2 -translate-y-1/2 w-2.5 h-2.5 bg-white rounded-full shadow-xl opacity-0 group-hover/vol-slider:opacity-100 transition-opacity"></div>
+                </div>
+              </div>
+              <input 
+                type="range"
+                min="0"
+                max="1"
+                step="0.01"
+                value={volume}
+                onChange={handleVolumeChange}
+                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+              />
             </div>
           </div>
+          {currentTrack.youtubeUrl && (
+            <a 
+              href={currentTrack.youtubeUrl} 
+              target="_blank" 
+              rel="noopener noreferrer"
+              className="hidden sm:block text-white/40 hover:text-[#FF0000] transition-all hover:scale-110"
+              title="Xem trên YouTube"
+            >
+              <Youtube size={20} />
+            </a>
+          )}
+          <div className="relative">
+            <button 
+              onClick={() => setShowSleepMenu(!showSleepMenu)}
+              className={`hidden sm:block transition-all hover:scale-110 ${sleepTimer ? 'text-blue-500' : 'text-white/40 hover:text-white'}`}
+              title="Hẹn giờ tắt nhạc"
+            >
+              <Clock size={20} />
+            </button>
+            {showSleepMenu && (
+              <div className="absolute right-0 bottom-full mb-4 w-48 glass border border-white/10 rounded-xl shadow-2xl z-[110] overflow-hidden py-1 animate-in fade-in slide-in-from-bottom-2 duration-200">
+                <div className="px-3 py-2 text-[10px] font-bold text-white/30 uppercase tracking-widest border-b border-white/5">Hẹn giờ tắt</div>
+                {[15, 30, 45, 60, 90].map(mins => (
+                  <button 
+                    key={mins}
+                    onClick={() => { onSetSleepTimer(mins); setShowSleepMenu(false); }}
+                    className={`w-full text-left px-4 py-2 text-xs transition-colors ${sleepTimer === mins ? 'text-blue-400 bg-white/5' : 'text-white/70 hover:bg-white/10 hover:text-white'}`}
+                  >
+                    {mins} phút
+                  </button>
+                ))}
+                <button 
+                  onClick={() => { onSetSleepTimer(null); setShowSleepMenu(false); }}
+                  className="w-full text-left px-4 py-2 text-xs text-red-400 hover:bg-white/10 transition-colors border-t border-white/5"
+                >
+                  Tắt hẹn giờ
+                </button>
+              </div>
+            )}
+          </div>
+          <button 
+            onClick={onOpenQueue}
+            className="hidden sm:block text-white/40 hover:text-white transition-all hover:scale-110"
+            title="Danh sách chờ"
+          >
+            <ListMusic size={20} />
+          </button>
           <button onClick={onOpenLyrics} className="hidden sm:block text-white/40 hover:text-white transition-all hover:scale-110">
             <Maximize2 size={18} />
           </button>

@@ -10,7 +10,7 @@ export const getMoodPlaylist = async (mood: string): Promise<AIRecommendation[]>
     model: 'gemini-3-flash-preview',
     contents: `Gợi ý một danh sách phát gồm 5 bài hát dựa trên tâm trạng: "${mood}". 
     ƯU TIÊN CỰC CAO cho các bài hát của nghệ sĩ VIỆT NAM hoặc các bản hit V-Pop đang nổi bật.
-    Với mỗi bài hát, hãy cung cấp tên bài hát, nghệ sĩ và lý do ngắn gọn tại sao nó phù hợp (lý do viết bằng tiếng Việt).`,
+    Với mỗi bài hát, hãy cung cấp tên bài hát, nghệ sĩ, lý do ngắn gọn tại sao nó phù hợp (lý do viết bằng tiếng Việt) và một link YouTube chính thức (nếu có).`,
     config: {
       responseMimeType: "application/json",
       responseSchema: {
@@ -20,7 +20,8 @@ export const getMoodPlaylist = async (mood: string): Promise<AIRecommendation[]>
           properties: {
             title: { type: Type.STRING },
             artist: { type: Type.STRING },
-            reason: { type: Type.STRING }
+            reason: { type: Type.STRING },
+            youtubeUrl: { type: Type.STRING }
           },
           required: ["title", "artist", "reason"]
         }

@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Search } from 'lucide-react';
-import { Track } from '../types';
+import { Track, Playlist } from '../types';
 import TrackList from './TrackList';
 
 interface SearchViewProps {
@@ -12,6 +12,10 @@ interface SearchViewProps {
   onToggleLike: (trackId: string) => void;
   onDownload: (track: Track) => void;
   likedTrackIds: Set<string>;
+  userPlaylists?: Playlist[];
+  onAddToPlaylist?: (track: Track, playlistId: string) => void;
+  onAddToQueue?: (track: Track) => void;
+  onCreatePlaylist?: () => void;
 }
 
 const SearchView: React.FC<SearchViewProps> = (props) => {
@@ -60,6 +64,10 @@ const SearchView: React.FC<SearchViewProps> = (props) => {
           onToggleLike={props.onToggleLike}
           onDownload={props.onDownload}
           likedTrackIds={props.likedTrackIds}
+          userPlaylists={props.userPlaylists}
+          onAddToPlaylist={props.onAddToPlaylist}
+          onAddToQueue={props.onAddToQueue}
+          onCreatePlaylist={props.onCreatePlaylist}
         />
       </div>
     </div>
